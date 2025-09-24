@@ -19,17 +19,24 @@
       margin:0;
       padding:30px 0;
     }
-    canvas { border:2px solid black; background:white; touch-action:none; }
-    #controls { margin-top:12px; display:flex; gap:10px; align-items:center; }
+    canvas { 
+      border:2px solid black; 
+      background:white; 
+      touch-action:none; 
+      max-width:95vw; 
+      height:auto;
+    }
+    #controls { margin-top:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     button { padding:6px 12px; font-size:14px; cursor:pointer; }
   </style>
 </head>
 <body>
   <h1>Snake Game</h1>
   <br>
-  <H3>By Govinda Upadhyay</H3>
+  <h3>By Govinda Upadhyay</h3>
   <br>
-  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <br>
+  <canvas id="gameCanvas"></canvas>
   <div id="controls">
     <button id="startBtn">Start / Restart</button>
     <div>Use arrow keys or swipe on mobile. <br>Score: <span id="score">0</span></div>
@@ -40,12 +47,28 @@ from js import document, window
 from pyodide.ffi import create_proxy
 import random
 
-# --- constants / canvas ---
 canvas = document.getElementById("gameCanvas")
 ctx = canvas.getContext("2d")
-WIDTH = int(canvas.width)
-HEIGHT = int(canvas.height)
+
+# --- dynamic canvas resize ---
 BOX = 20
+WIDTH, HEIGHT = 400, 400  # default
+SPEED = 150               # default snake speed (ms)
+
+def resize_canvas(event=None):
+    global WIDTH, HEIGHT, BOX, SPEED
+    if window.innerWidth < 500:   # phone
+        WIDTH = HEIGHT = 300
+        SPEED = 120
+    else:                         # desktop
+        WIDTH = HEIGHT = 400
+        SPEED = 150
+    canvas.width = WIDTH
+    canvas.height = HEIGHT
+    BOX = WIDTH // 20   # grid 20×20
+
+resize_canvas()
+window.addEventListener("resize", create_proxy(resize_canvas))
 
 # --- game state ---
 snake = [(BOX * 5, BOX * 5)]
@@ -56,7 +79,6 @@ score = 0
 game_over = False
 _interval_id = None
 
-# update score DOM
 score_span = document.getElementById("score")
 
 def spawn_food():
@@ -75,14 +97,13 @@ def draw():
     ctx.fillStyle = "white"
     ctx.fillRect(0, 0, WIDTH, HEIGHT)
 
-    # --- draw food as a red apple ---
+    # --- food: apple ---
     ctx.beginPath()
     ctx.arc(food[0] + BOX/2, food[1] + BOX/2, BOX/2 - 2, 0, 2*3.1416)
     ctx.fillStyle = "red"
     ctx.fill()
     ctx.closePath()
 
-    # small green stem
     ctx.beginPath()
     ctx.moveTo(food[0] + BOX/2, food[1])
     ctx.lineTo(food[0] + BOX/2, food[1] - 6)
@@ -91,54 +112,45 @@ def draw():
     ctx.stroke()
     ctx.closePath()
 
-    # --- draw snake with rounded body and gradient ---
+    # --- snake ---
     for i, (x, y) in enumerate(snake):
         ctx.beginPath()
         ctx.arc(x + BOX/2, y + BOX/2, BOX/2 - 1, 0, 2*3.1416)
         if i == 0:
-            # head: darker green gradient
-            gradient = ctx.createRadialGradient(x+BOX/2, y+BOX/2, 4, x+BOX/2, y+BOX/2, BOX/2)
-            gradient.addColorStop(0, "darkgreen")
-            gradient.addColorStop(1, "green")
-            ctx.fillStyle = gradient
+            grad = ctx.createRadialGradient(x+BOX/2, y+BOX/2, 4, x+BOX/2, y+BOX/2, BOX/2)
+            grad.addColorStop(0, "darkgreen")
+            grad.addColorStop(1, "green")
+            ctx.fillStyle = grad
         else:
-            # body: lighter gradient
-            gradient = ctx.createRadialGradient(x+BOX/2, y+BOX/2, 2, x+BOX/2, y+BOX/2, BOX/2)
-            gradient.addColorStop(0, "#3cb371")  # medium sea green
-            gradient.addColorStop(1, "#006400")  # dark green
-            ctx.fillStyle = gradient
+            grad = ctx.createRadialGradient(x+BOX/2, y+BOX/2, 2, x+BOX/2, y+BOX/2, BOX/2)
+            grad.addColorStop(0, "#3cb371")
+            grad.addColorStop(1, "#006400")
+            ctx.fillStyle = grad
         ctx.fill()
         ctx.closePath()
 
-    # compute new head
+    # movement
     head_x, head_y = snake[0]
-    if direction == "LEFT":
-        head_x -= BOX
-    elif direction == "RIGHT":
-        head_x += BOX
-    elif direction == "UP":
-        head_y -= BOX
-    elif direction == "DOWN":
-        head_y += BOX
+    if direction == "LEFT": head_x -= BOX
+    elif direction == "RIGHT": head_x += BOX
+    elif direction == "UP": head_y -= BOX
+    elif direction == "DOWN": head_y += BOX
 
     new_head = (head_x, head_y)
 
-    # collision check (walls or self)
+    # collision
     if head_x < 0 or head_x >= WIDTH or head_y < 0 or head_y >= HEIGHT or new_head in snake:
         ctx.fillStyle = "black"
         ctx.font = "30px Arial"
         ctx.fillText("Game Over!", WIDTH//2 - 90, HEIGHT//2)
         game_over = True
-        # stop interval
         if _interval_id is not None:
             window.clearInterval(_interval_id)
             _interval_id = None
         return
 
-    # move snake
     snake.insert(0, new_head)
 
-    # eat food?
     if new_head == food:
         score += 1
         score_span.innerText = str(score)
@@ -146,7 +158,6 @@ def draw():
     else:
         snake.pop()
 
-    # score text
     ctx.fillStyle = "black"
     ctx.font = "18px Arial"
     ctx.fillText(f"Score: {score}", 10, 20)
@@ -154,48 +165,38 @@ def draw():
 # --- controls ---
 def setDir(new_dir):
     global direction
-    opposites = {"UP":"DOWN","DOWN":"UP","LEFT":"RIGHT","RIGHT":"LEFT"}
-    if opposites.get(direction) == new_dir:
-        return
+    opp = {"UP":"DOWN","DOWN":"UP","LEFT":"RIGHT","RIGHT":"LEFT"}
+    if opp.get(direction) == new_dir: return
     direction = new_dir
 
 def key_handler(evt):
-    key = evt.key
-    if key in ["ArrowUp","w","W"]:
-        setDir("UP")
-    elif key in ["ArrowDown","s","S"]:
-        setDir("DOWN")
-    elif key in ["ArrowLeft","a","A"]:
-        setDir("LEFT")
-    elif key in ["ArrowRight","d","D"]:
-        setDir("RIGHT")
+    k = evt.key
+    if k in ["ArrowUp","w","W"]: setDir("UP")
+    elif k in ["ArrowDown","s","S"]: setDir("DOWN")
+    elif k in ["ArrowLeft","a","A"]: setDir("LEFT")
+    elif k in ["ArrowRight","d","D"]: setDir("RIGHT")
 
-# touch (swipe)
-startX = 0
-startY = 0
+startX=startY=0
 def touch_start(evt):
     try: evt.preventDefault()
     except: pass
-    t = evt.touches.item(0) if hasattr(evt.touches, "item") else evt.touches[0]
-    global startX, startY
-    startX = t.clientX
-    startY = t.clientY
+    t = evt.touches.item(0) if hasattr(evt.touches,"item") else evt.touches[0]
+    global startX,startY
+    startX,startY = t.clientX,t.clientY
 
 def touch_end(evt):
     try: evt.preventDefault()
     except: pass
-    t = evt.changedTouches.item(0) if hasattr(evt.changedTouches, "item") else evt.changedTouches[0]
-    dx = t.clientX - startX
-    dy = t.clientY - startY
-    if abs(dx) > abs(dy):
-        if dx > 0: setDir("RIGHT")
+    t = evt.changedTouches.item(0) if hasattr(evt.changedTouches,"item") else evt.changedTouches[0]
+    dx,dy = t.clientX-startX, t.clientY-startY
+    if abs(dx)>abs(dy):
+        if dx>0: setDir("RIGHT")
         else: setDir("LEFT")
     else:
-        if dy > 0: setDir("DOWN")
+        if dy>0: setDir("DOWN")
         else: setDir("UP")
 
-# --- proxies (important) ---
-from pyodide.ffi import create_proxy
+# --- proxies ---
 key_proxy = create_proxy(key_handler)
 touch_start_proxy = create_proxy(touch_start)
 touch_end_proxy = create_proxy(touch_end)
@@ -205,27 +206,23 @@ document.addEventListener("keydown", key_proxy)
 canvas.addEventListener("touchstart", touch_start_proxy)
 canvas.addEventListener("touchend", touch_end_proxy)
 
-# --- start / restart ---
+# --- start/restart ---
 start_btn = document.getElementById("startBtn")
 def start_game(evt=None):
     global _interval_id, game_over, snake, direction, score
-    # reset if needed
-    if game_over or _interval_id is None:
-        snake = [(BOX * 5, BOX * 5)]
-        direction = "RIGHT"
-        score = 0
-        score_span.innerText = str(score)
-        spawn_food()
-        game_over = False
-        # clear any old interval
-        if _interval_id is not None:
-            window.clearInterval(_interval_id)
-        _interval_id = window.setInterval(draw_proxy, 150)
+    snake = [(BOX * 5, BOX * 5)]
+    direction = "RIGHT"
+    score = 0
+    score_span.innerText = str(score)
+    spawn_food()
+    game_over = False
+    if _interval_id is not None:
+        window.clearInterval(_interval_id)
+    _interval_id = window.setInterval(draw_proxy, SPEED)
 
-start_btn_proxy = create_proxy(start_game)
-start_btn.addEventListener("click", start_btn_proxy)
+start_btn.addEventListener("click", create_proxy(start_game))
 
-# auto-start once page loads
+# auto start
 start_game()
   </script>
 </body>
